@@ -6,6 +6,7 @@ import ru.saintunix.tictactoe.util.Request;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -49,13 +50,24 @@ public class PlayToGame {
     }
 
     private void newGame() {
-        gameId = sendRequest("new?player=" + id).getMsg();
+        try {
+            gameId = sendRequest("new?player=" + id).getMsg();
+        } catch (Throwable e) {
+            System.err.println("Failed create new game!");
+            return;
+        }
         play();
 
     }
 
     private void listGame() {
-        Request resp = sendRequest("list");
+        Request resp;
+        try {
+            resp = sendRequest("list");
+        } catch (Throwable e) {
+            System.err.println("Failed list new game!");
+            return;
+        }
         String[] games = gosn.fromJson(resp.getMsg(), String[].class);
 
         if (games.length == 0) {
@@ -80,7 +92,12 @@ public class PlayToGame {
             break;
         }
 
-        sendRequest(String.format("player/add?player=%s&game=%s", id, games[connectToGame]));
+        try {
+            sendRequest(String.format("player/add?player=%s&game=%s", id, games[connectToGame]));
+        } catch (Throwable e) {
+            System.err.println("Failed add player to game!");
+            return;
+        }
         gameId = games[connectToGame];
 
         play();
@@ -90,7 +107,13 @@ public class PlayToGame {
         boolean status = true; // Displayed a msg about the opponent progress
 
         while (true) {
-            Request resp = sendRequest("status?player=" + id + "&game=" + gameId);
+            Request resp;
+            try {
+                resp = sendRequest("status?player=" + id + "&game=" + gameId);
+            } catch (Throwable e) {
+                System.err.println("Failed getting game status!");
+                return;
+            }
 
             String nextPlayer = resp.getMsg();
             String[][] field = resp.getField();
@@ -112,7 +135,12 @@ public class PlayToGame {
                 String stringStep = readLineStdin();
                 String[] step = stringStep.split(" ");
 
-                sendRequest(String.format("step?player=%s&game=%s&x=%s&y=%s", id, gameId, step[0], step[1]));
+                try {
+                    sendRequest(String.format("step?player=%s&game=%s&x=%s&y=%s", id, gameId, step[0], step[1]));
+                } catch (Throwable e) {
+                    System.err.println("Incorrect step! Try again!");
+                    continue;
+                }
                 status = true;
             } else {
                 if (status) {
@@ -137,7 +165,7 @@ public class PlayToGame {
         );
     }
 
-    private Request sendRequest(String req) {
+    private Request sendRequest(String req) throws Throwable {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(host + req))
                 .timeout(Duration.ofSeconds(10))
@@ -161,6 +189,20 @@ public class PlayToGame {
 
         Request response = gosn.fromJson(resp.body(), Request.class);
         if (!response.isStatus()) {
+            String className = response.getMsg();
+            try {
+                Class<?> err = Class.forName(className);
+                if (className.contains("Exceptions")) {
+                    throw (Throwable) err.getConstructor().newInstance();
+                }
+            } catch (ClassNotFoundException e) {
+                System.err.println("Failed create error: " + className);
+                System.exit(1);
+            } catch (InstantiationException | InvocationTargetException | NoSuchMethodException | IllegalAccessException e) {
+                e.printStackTrace();
+                System.exit(1);
+            }
+
             System.err.println(response.getMsg());
             System.exit(1);
         }
